@@ -96,7 +96,23 @@ void AggregateAccumulatorValuesAndUpdateEvaluation(
     }
 
     // Update output values of nodes between accumulator nodes and evaluation nodes.
-    net->ForwardProp(evalNodesWhichAccumulateResult);
+    std::set<ComputationNodeBasePtr> nodesToDoForwardOn;
+    net->TravserseInSortedGlobalEvalOrder(evalNodesWhichAccumulateResult, [&](const ComputationNodeBasePtr& node) {
+        for (const ComputationNodeBasePtr& input : node->GetInputs())
+        {
+            if (std::find(allEpochAccumulatorNodes.begin(), allEpochAccumulatorNodes.end(), input) != allEpochAccumulatorNodes.end()
+                || nodesToDoForwardOn.find(input) != nodesToDoForwardOn.end())
+            {
+                nodesToDoForwardOn.insert(node);
+            }
+        }
+    });
+    net->TravserseInSortedGlobalEvalOrder(evalNodesWhichAccumulateResult, [&](const ComputationNodeBasePtr& node) {
+        if (nodesToDoForwardOn.find(node) != nodesToDoForwardOn.end())
+        {
+            ComputationNetwork::PARTraversalFlowControlNode::ForwardProp(node, FrameRange(nullptr));
+        }
+    });
 }
 
 template <typename ElemType>
@@ -135,7 +151,7 @@ void AggregateAccumulatorValuesAndUpdateEpochEvaluation(
     // Each node contains accumulated values for part of the data set, we have to aggregate accumulated values.
     AggregateAccumulatorValuesAndUpdateEvaluation<ElemType>(net, evalNodesWhichAccumulateResult, gradHeader, mpi, packThresholdSizeInBytes);
 
-    // After values of accumulators have been aggregated accross nodes, we have to update evaluation results for
+    // After values of accumulators have been aggregated across nodes, we have to update evaluation results for
     // evaluation nodes that accumulate results.
     UpdateEpochEvaluationForAccumulatedResult<ElemType>(epochEvalErrors, evaluationNodes, localEpochEvalErrors,
                                                         containsAccumulatedResult);
